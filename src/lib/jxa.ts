@@ -1,7 +1,7 @@
 import { promises as fs } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { execa } from 'execa'
+import { execa, type ExecaError } from 'execa'
 import type { ScreenshotInput } from './schema.js'
 import type { WindowInfo } from './handler.js'
 
@@ -30,12 +30,20 @@ function run(argv) {
   if (!process.exists()) {
     return JSON.stringify({ error: 'ProcessNotFound', appName });
   }
-  if (process.windows.length === 0) {
+
+  const timeoutMs = arg.timeoutMs || 30000;
+  const deadline = Date.now() + timeoutMs;
+  var windows = process.windows();
+  while (windows.length === 0 && Date.now() < deadline) {
+    delay(0.1);
+    windows = process.windows();
+  }
+  if (windows.length === 0) {
     return JSON.stringify({ error: 'NoWindow', appName });
   }
 
-  const index = Math.min(arg.windowIndex || 0, process.windows.length - 1);
-  const window = process.windows[index];
+  const index = Math.min(arg.windowIndex || 0, windows.length - 1);
+  const window = windows[index];
   const position = window.position();
   const size = window.size();
 
@@ -79,33 +87,37 @@ function run(argv) {
 let scriptPathPromise: Promise<string> | null = null
 
 export async function resolveWindow(input: ScreenshotInput): Promise<WindowInfo> {
-  const { stdout } = await execa(
-    'osascript',
-    [
-      '-l',
-      'JavaScript',
-      await getScriptPath(),
-      JSON.stringify({
-        bundleId: input.bundleId ?? null,
-        appName: input.appName ?? null,
-        windowIndex: input.windowIndex ?? 0,
-      }),
-    ],
-    {
-      timeout: input.timeoutMs,
-    },
-  )
-
-  const parsed = parseJxaOutput(stdout)
-  if ('error' in parsed) {
-    throw new WindowResolutionError(
-      parsed.error,
-      parsed.error,
-      parsed.appName ? { appName: parsed.appName } : undefined,
+  try {
+    const { stdout } = await execa(
+      'osascript',
+      [
+        '-l',
+        'JavaScript',
+        await getScriptPath(),
+        JSON.stringify({
+          bundleId: input.bundleId ?? null,
+          appName: input.appName ?? null,
+          windowIndex: input.windowIndex ?? 0,
+        }),
+      ],
+      {
+        timeout: input.timeoutMs,
+      },
     )
-  }
 
-  return parsed
+    const parsed = parseJxaOutput(stdout)
+    if ('error' in parsed) {
+      throw new WindowResolutionError(
+        parsed.error,
+        parsed.error,
+        parsed.appName ? { appName: parsed.appName } : undefined,
+      )
+    }
+
+    return parsed
+  } catch (error) {
+    throw normalizeResolveWindowError(error, input)
+  }
 }
 
 async function getScriptPath(): Promise<string> {
@@ -151,4 +163,43 @@ function parseJxaOutput(stdout: string): JxaOutput {
     ;(parseError as { cause: unknown }).cause = error
     throw parseError
   }
+}
+
+function normalizeResolveWindowError(error: unknown, input: ScreenshotInput): Error {
+  if (isExecaError(error)) {
+    const stderr = extractText(error.stderr)
+    const stdout = extractText(error.stdout)
+    const combined = `${stderr}\n${stdout}`.trim()
+    if (
+      combined.includes('osascriptには補助アクセスは許可されません') ||
+      combined.includes('osascript is not allowed')
+    ) {
+      return new WindowResolutionError(
+        'AccessibilityPermissionDenied',
+        'macOSのアクセシビリティ権限が不足しています。システム設定 → プライバシーとセキュリティ → アクセシビリティ で「osascript」とこのMCPサーバを実行しているターミナル（例: Alacritty）への許可を付与してください。',
+        input.appName ? { appName: input.appName } : undefined,
+      )
+    }
+    const message = combined || error.shortMessage || error.message
+    return new WindowResolutionError(
+      'JXAExecutionFailed',
+      message,
+      input.appName ? { appName: input.appName } : undefined,
+    )
+  }
+  return error instanceof Error ? error : new Error(String(error))
+}
+
+function isExecaError(error: unknown): error is ExecaError {
+  return Boolean(
+    error &&
+      typeof error === 'object' &&
+      'exitCode' in error &&
+      'command' in error &&
+      'shortMessage' in error,
+  )
+}
+
+function extractText(value: unknown): string {
+  return typeof value === 'string' ? value : ''
 }

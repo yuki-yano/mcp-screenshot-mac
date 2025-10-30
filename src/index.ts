@@ -4,6 +4,7 @@ import { createScreenshotHandler } from './lib/handler.js'
 import { captureScreenshot } from './lib/screencapture.js'
 import { getTtlMs, scheduleCleanup } from './lib/temp-files.js'
 import { resolveWindow } from './lib/jxa.js'
+import { InputParamsShape } from './lib/schema.js'
 
 const VERSION = process.env.npm_package_version ?? '0.1.0'
 
@@ -32,35 +33,20 @@ export function createServer() {
     getTtlMs,
   })
 
-  const callHandler = async (...toolArgs: unknown[]) => {
-    const maybeArgs = toolArgs[0]
-    const rawArgs = isRequestHandlerExtra(maybeArgs)
-      ? (maybeArgs.request.params?.arguments ?? {})
-      : maybeArgs
-    return handler(rawArgs)
-  }
-
-  const canonicalTool = server.tool('screenshot_app_window', callHandler)
-  canonicalTool.update({
-    title: 'Screenshot macOS app window',
-    description: 'macOSアプリの前面ウィンドウをスクリーンショットしてパスとURIを返す',
-    annotations: {
-      schema: ToolInputJsonSchema,
+  server.registerTool(
+    'screenshot_app_window',
+    {
+      title: 'Screenshot macOS app window',
+      description: 'macOSアプリの前面ウィンドウをスクリーンショットしてパスとURIを返す',
+      inputSchema: InputParamsShape,
+      annotations: {
+        schema: ToolInputJsonSchema,
+      },
     },
-  })
-  ;['mcp__screenshot__screenshot_app_window', 'screenshot__screenshot_app_window'].forEach(
-    (alias) => {
-      server.tool(alias, callHandler)
-    },
+    async (args) => handler(args),
   )
 
   return server
-}
-
-function isRequestHandlerExtra(value: unknown): value is {
-  request: { params?: { arguments?: unknown } }
-} {
-  return Boolean(value && typeof value === 'object' && 'request' in value)
 }
 
 export async function startServer() {

@@ -1,3 +1,3 @@
-import { initialize } from './index.js'
+import { startServer } from './index.js'
 
-initialize()
+await startServer()

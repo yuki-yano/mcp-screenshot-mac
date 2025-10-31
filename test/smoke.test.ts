@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { initialize } from '../src/index.js'
+import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
+import { createServer } from '../src/index.js'
 
-describe('initialize', () => {
-  it('executes without throwing', () => {
-    expect(() => initialize()).not.toThrow()
+describe('createServer', () => {
+  it('creates an MCP server instance', () => {
+    const server = createServer()
+    expect(server).toBeInstanceOf(McpServer)
   })
 })

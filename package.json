@@ -52,5 +52,10 @@
     "tsdown": "^0.15.12",
     "typescript": "^5.9.3",
     "vitest": "^4.0.5"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.20.2",
+    "execa": "^9.6.0",
+    "zod": "^4.1.12"
   }
 }
